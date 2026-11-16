@@ -9,19 +9,34 @@
 // Implied value follows only from the snapshot's own figures, the same function for every row:
 //
 //   base       = tvl_usd x BASE_MULTIPLE
-//   growth     = clamp(change_7d, -60, 120) per cent
+//   growth     = clamp(change_7d, -60, 120) percent
 //   growthMult = 1 + (growth / 100) x GROWTH_WEIGHT
 //   maturity   = 0.6 + min(age_days, 1095) / 1095 x 0.4   (age_days unknown: 365)
 //   breadth    = 1 + 0.02 x min(chains - 1, 10)           (0 for a single chain, up to 1.20)
 //   implied    = max(1, round(base x growthMult x maturity x breadth))
 //
-// TVL is the size of the economy a token would price. Seven-day growth is its momentum, clamped so
-// one wild week cannot carry a row. Maturity is how long the protocol has run with no token: a
-// protocol that held a large TVL for years without issuing one is a bigger launch candidate than one
-// that appeared last month. Breadth is how many chains its TVL sits on: a protocol live on many
-// chains reaches more users and more wallets that a launch would pay. No protocol name is ever
-// special-cased, and no row is hand-picked: the same four factors score every row, and the dashboard
-// shows each factor beside its row so a reader can check the arithmetic.
+// Units: change_7d arrives already in percent (DefiLlama's seven-day change: -72.7 to +4448.5 in
+// this snapshot), so the clamp is in percent too, and the growth multiplier divides by 100. A
+// missing change_7d counts as no growth. TVL is the size of the economy a token would price.
+// Seven-day growth is its momentum, clamped so one wild week cannot carry a row. Maturity is how
+// long the protocol has run with no token: a protocol that held a large TVL for years without
+// issuing one is a bigger launch candidate than one that appeared last month. Breadth is how many
+// chains its TVL sits on: a protocol live on many chains reaches more users and more wallets that
+// a launch would pay. No protocol name is ever special-cased, and no row is hand-picked: the same
+// four factors score every row, and the dashboard shows each factor beside its row so a reader can
+// check the arithmetic.
+//
+// What counts as rankable, and why. A protocol is rankable when it records no token, is not an
+// exchange, and is not a versioned pool (a name ending in a release number, which DefiLlama's
+// version-marker rule treats as a pool of another protocol). Above the floor the house's watchlist
+// is authoritative: 63 rankable protocols sit at or above the floor without being on it, and the
+// board does not add them, because the watchlist is the house's own reading of the
+// wrapped/staked/bridged exclusion for protocols that large. Below the floor the model ranks
+// every rankable protocol it finds. Category alone never disqualifies a protocol: the house's own
+// watchlist keeps a Stablecoin Wrapper (saturn), so a bridge, staking or wrapper category is not
+// by itself proof that a protocol is a wrapped product of one that trades — bridges and staking
+// protocols do launch their own tokens. The board is therefore the watchlist plus every rankable
+// protocol below the floor, and nothing else is added or removed by hand.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -193,7 +208,8 @@ export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: Mo
   const maturityMult = model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
   const chainCount = Math.max(0, protocol.chains.length);
   const breadthMult = 1 + model.breadth_step * Math.min(Math.max(chainCount - 1, 0), model.breadth_cap);
-  const base = protocol.tvl_usd * model.base_multiple;
+  // A TVL below zero is bad input, never a negative economy: it prices at nothing.
+  const base = Math.max(0, protocol.tvl_usd) * model.base_multiple;
   const implied = Math.max(1, Math.round(base * growthMult * maturityMult * breadthMult));
   return { implied, growthPct, growthMult, maturityMult, breadthMult, age };
 }
@@ -228,8 +244,11 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   }
   // The early radar: every rankable pre-token protocol below the watchlist floor, by TVL. Never a
   // replacement for a watchlist row: a chosen protocol stays chosen. The floor is where the house's
-  // reading started, not where this radar stops: the board ranks all 226 rankable pre-token
-  // protocols the snapshot carries, so the early rows are the whole early universe, not a sample.
+  // reading started, not where this radar stops: the board ranks every rankable pre-token protocol
+  // below the floor the snapshot carries, so the early rows are the whole early universe, not a
+  // sample. Protocols at or above the floor that the watchlist leaves out are left out here too:
+  // above the floor the house's watchlist is the authority on which of them are wrapped, staked or
+  // bridged products of one that trades.
   const early = snapshot.protocols
     .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
     .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
@@ -306,7 +325,9 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
   if (c.includes('risk curat')) return `Allocate $${capital} of USDC to a curator vault on ${name} on ${chain} and keep the shares.`;
   if (c.includes('basis trading')) return `Deposit $${capital} of USDC into a ${name} basis-trading vault on ${chain} and keep the position open.`;
   if (c.includes('onchain capital allocator') || c.includes('allocator')) return `Deposit $${capital} of USDC into a ${name} allocator vault on ${chain} and keep the shares.`;
-  if (c.includes('governance')) return `Lock $${capital} of the protocol's governance asset through ${name} on ${chain} and vote in its next proposal.`;
+  // A pre-token protocol has no governance asset to lock yet, so the governance action is a real
+  // deposit into the protocol plus taking part in its forum, never locking a token that does not exist.
+  if (c.includes('governance')) return `Deposit $${capital} of USDC into ${name} on ${chain} and join its governance forum to take part in the next proposal.`;
   if (c.includes('stablecoin wrapper') || c.includes('stablecoin')) return `Mint $${capital} of the wrapped stable asset through ${name} on ${chain} and hold it.`;
   if (c.includes('collateral')) return `Supply $${capital} of collateral to ${name} on ${chain} and borrow a small amount against it.`;
   if (c.includes('payment')) return `Keep a $${capital} balance on ${name} and pay for one real purchase or transfer through it.`;
