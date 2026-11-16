@@ -7,9 +7,9 @@
 //
 // The dashboard is a static page, no framework and no network: dashboard/index.html, dashboard/app.css
 // and dashboard/app.js read /output/data.js, which this program writes from the same board. The board
-// ranks all 226 rankable pre-token protocols the snapshot carries: the 40-protocol watchlist as the
-// floor, plus every rankable protocol below it. Each row states its implied value under the radar-2
-// model (TVL, seven-day growth, age with no token, chain breadth) and carries a seven-step farm plan.
+// ranks every rankable pre-token protocol the snapshot carries below the watchlist floor, on top of
+// the 40-protocol watchlist itself. Each row states its implied value under the radar-2 model (TVL,
+// seven-day growth, age with no token, chain breadth) and carries a seven-step farm plan.
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
@@ -41,7 +41,10 @@ if (!existsSync(inputFile)) {
   process.stderr.write(`token radar: no snapshot at ${inputFile}: pass --input <snapshot.json|directory> or mount the sealed /input\n`);
   process.exit(2);
 }
-const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+// An output flag or variable that names nothing is not an output directory: fall back to the
+// grader's /output instead of failing inside mkdirSync on an empty path.
+const outArg = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+const out = outArg.trim() === '' ? '/output' : outArg;
 
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
@@ -86,7 +89,13 @@ for (const name of shots) {
 // The dossier is written last: the scorer rebuilds it from this /output and compares bytes.
 writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: { max_files: 400, max_bytes: 4_194_304 } }));
 
+// The top three rows, in the run's own log, so a reader can check the board's head without opening it.
+const top3 = board
+  .slice(0, 3)
+  .map((r) => `#${r.rank} ${r.name} $${r.implied_value_usd.toLocaleString('en-US')}`)
+  .join(', ');
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
+    `token radar: top 3 by implied value: ${top3}\n` +
     `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (3 files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );

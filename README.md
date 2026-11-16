@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/token-radar-01/Rahulboss7788/token-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/Rahulboss7788/token-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-Token Radar ranks 226 pre-token DeFi protocols by an implied value derived only from a sealed DefiLlama snapshot (TVL, seven-day growth, age with no token, chain breadth), and gives each one a seven-step farm plan with costs and times. The board covers the whole 40-protocol watchlist plus every other rankable pre-token protocol below its floor. The dashboard is a static page that renders with no network: a sortable, filterable board, a detail view for every protocol with its model breakdown, and a live-token view set aside with market caps. Implied values are the entry's own claim, never a price, and nothing here predicts whether or when a token launches.
+Token Radar ranks 226 pre-token DeFi protocols by an implied value derived only from a sealed DefiLlama snapshot (TVL, seven-day growth, age with no token, chain breadth), and gives each one a seven-step farm plan with costs and times. The board covers the whole 40-protocol watchlist plus every other rankable pre-token protocol below its floor. The dashboard is a static page that renders with no network: a sortable, filterable board, a detail view for every protocol with its model breakdown, a compare view that sets any two protocols side by side with the larger figure in each row marked, and a live-token view set aside with market caps. Implied values are the entry's own claim, never a price, and nothing here predicts whether or when a token launches.
 
 ## Run it
 
@@ -13,6 +13,14 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../token-radar-01-ki
 ```
 
 Node 22.18 or later, standard library only. `main.ts` reads the snapshot, writes `board.json`, `data.js` and `dossier.json` to the output directory, and copies `dashboard/` and `screenshots/` there.
+
+## Check it
+
+```sh
+node scripts/verify.mjs
+```
+
+The self-test runs `main.ts` on the snapshot and checks every invariant the gate enforces — 226 rows, ranks 1–226, non-increasing implied values, 226 distinct values, the whole 40-protocol watchlist covered, farm steps in range, and the dashboard data and dossier files in place — printing PASS or FAIL per check and exiting non-zero on any failure.
 
 ## How the model works
 
