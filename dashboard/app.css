@@ -42,7 +42,8 @@ body {
 .spot .sub, .panel .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 10px; }
 .spot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 .spot-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; text-align: left; color: var(--ink); cursor: pointer; font: inherit; }
-.spot-card:hover, .spot-card:focus-visible { border-color: var(--accent); outline: none; }
+.spot-card:hover { border-color: var(--accent); }
+.spot-card:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
 .spot-card .rank { color: var(--accent); font-weight: 800; font-size: 13px; }
 .spot-card .name { display: block; font-weight: 700; font-size: 15px; margin: 4px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spot-card .val { font-size: 17px; font-weight: 800; }
@@ -68,7 +69,8 @@ th { color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spa
 th button { background: none; border: 0; color: inherit; font: inherit; cursor: pointer; padding: 0; text-transform: inherit; letter-spacing: inherit; }
 th button:hover { color: var(--ink); }
 tbody tr { cursor: pointer; }
-tbody tr:hover, tbody tr:focus-visible { background: rgba(245, 185, 66, .07); outline: none; }
+tbody tr:hover { background: rgba(245, 185, 66, .07); }
+tbody tr:focus-visible { background: rgba(245, 185, 66, .07); outline: 2px solid var(--accent); outline-offset: -2px; }
 tbody tr[data-selected="true"] { background: rgba(245, 185, 66, .12); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .name b { display: block; font-size: 14.5px; }
@@ -108,10 +110,26 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .steps .cost { color: var(--muted); font-size: 13px; }
 .note { color: var(--muted); font-size: 13.5px; margin: 12px 0 0; }
 .foot { color: var(--faint); font-size: 12.5px; text-align: center; }
+/* Compare view: two pickers, one side-by-side table, both farm plans. */
+.compare-pickers { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 14px; }
+.compare-pickers .field { flex: 1 1 220px; }
+.compare-pickers select { width: 100%; }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cmp-table th, .cmp-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.cmp-table thead th { color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.cmp-table tbody th { color: var(--muted); font-weight: 600; font-size: 13.5px; text-align: left; }
+.cmp-table td.num, .cmp-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cmp-table td.win { color: var(--good); font-weight: 800; }
+.cmp-table td.win::after { content: ' ▲'; }
+.cmp-steps { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.cmp-steps h3 { font-size: 14px; margin: 0 0 6px; }
+.cmp-steps .steps li { font-size: 13.5px; }
 @media (max-width: 760px) {
   .facts { grid-template-columns: repeat(2, 1fr); }
   .spot-grid { grid-template-columns: repeat(2, 1fr); }
   .model dl, .equation { grid-template-columns: 1fr; }
   .lede h1 { font-size: 21px; }
   .bar { display: none; }
+  .cmp-steps { grid-template-columns: 1fr; }
+  .cmp-table thead th { font-size: 11px; }
 }

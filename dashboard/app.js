@@ -1,15 +1,16 @@
 // Token Radar's dashboard (radar-2). It reads window.RADAR (written beside dashboard/ by main.ts)
 // and renders the ranked board, filters, a per-protocol detail view with the model's own inputs and
-// the protocol's farm plan. No network: every byte it shows is in data.js. The page recomputes each
-// row's implied value from the snapshot figures with the same function main.ts runs, so the page's
-// code and the board's data are visibly the same arithmetic.
+// the protocol's farm plan, plus a compare view that sets any two protocols side by side. No network:
+// every byte it shows is in data.js. The page recomputes each row's implied value from the snapshot
+// figures with the same function main.ts runs, so the page's code and the board's data are visibly
+// the same arithmetic.
 (function () {
   'use strict';
 
   var DATA = window.RADAR;
   if (!DATA) return;
   var app = document.getElementById('board');
-  var state = { q: '', category: 'all', chain: 'all', minTvl: 0, wlOnly: false, tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  var state = { q: '', category: 'all', chain: 'all', minTvl: 0, wlOnly: false, tab: 'pre-token', sort: 'implied', dir: -1, selected: null, cmpA: DATA.rows[0] ? DATA.rows[0].slug : null, cmpB: DATA.rows[1] ? DATA.rows[1].slug : null };
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -31,16 +32,9 @@
 
   // The model in one function: TVL x base multiple, growth, maturity by age with no token, breadth
   // by chain count. Identical to lib/model.ts impliedValue; the detail view recomputes each row and
-  // says whether the number matches the one board.json carries.
-  function impliedOf(row, model) {
-    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
-    var growthMult = 1 + (growth / 100) * model.growth_weight;
-    var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
-    var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
-    var chains = row.chains ? row.chains.length : 0;
-    var breadth = 1 + model.breadth_step * Math.min(Math.max(chains - 1, 0), model.breadth_cap);
-    return Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthMult * maturity * breadth));
-  }
+  // says whether the number matches the one board.json carries. One function, not two copies: the
+  // implied value is derived from the factors, so a change to the formula can never leave the two
+  // disagreeing.
   function factorsOf(row, model) {
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
@@ -49,6 +43,10 @@
     var chains = row.chains ? row.chains.length : 0;
     var breadth = 1 + model.breadth_step * Math.min(Math.max(chains - 1, 0), model.breadth_cap);
     return { growthPct: growth, growthMult: growthMult, maturityMult: maturity, breadthMult: breadth, chains: chains, age: age };
+  }
+  function impliedOf(row, model) {
+    var f = factorsOf(row, model);
+    return Math.max(1, Math.round(row.tvl_usd * model.base_multiple * f.growthMult * f.maturityMult * f.breadthMult));
   }
 
   function el(tag, attrs) {
@@ -92,7 +90,9 @@
     if (c.indexOf('risk curat') >= 0) return 'Allocate $' + capital + ' of USDC to a curator vault on ' + name + ' on ' + chain + ' and keep the shares.';
     if (c.indexOf('basis trading') >= 0) return 'Deposit $' + capital + ' of USDC into a ' + name + ' basis-trading vault on ' + chain + ' and keep the position open.';
     if (c.indexOf('onchain capital allocator') >= 0 || c.indexOf('allocator') >= 0) return 'Deposit $' + capital + ' of USDC into a ' + name + ' allocator vault on ' + chain + ' and keep the shares.';
-    if (c.indexOf('governance') >= 0) return 'Lock $' + capital + ' of the protocol\u2019s governance asset through ' + name + ' on ' + chain + ' and vote in its next proposal.';
+    // A pre-token protocol has no governance asset to lock yet: the action is a real deposit plus
+    // taking part in its forum, never locking a token that does not exist.
+    if (c.indexOf('governance') >= 0) return 'Deposit $' + capital + ' of USDC into ' + name + ' on ' + chain + ' and join its governance forum to take part in the next proposal.';
     if (c.indexOf('stablecoin wrapper') >= 0 || c.indexOf('stablecoin') >= 0) return 'Mint $' + capital + ' of the wrapped stable asset through ' + name + ' on ' + chain + ' and hold it.';
     if (c.indexOf('collateral') >= 0) return 'Supply $' + capital + ' of collateral to ' + name + ' on ' + chain + ' and borrow a small amount against it.';
     if (c.indexOf('payment') >= 0) return 'Keep a $' + capital + ' balance on ' + name + ' and pay for one real purchase or transfer through it.';
@@ -135,6 +135,9 @@
   // the watchlist-only filter never guesses from TVL alone: a row above the floor can still be
   // off the list when it is a wrapped, staked or versioned product.
   function isWatchlist(r) { return r.watchlist === true; }
+  // How many of the board's rows are actually on the watchlist, counted from the rows themselves
+  // rather than asserted: the coverage claim in the lede is a count, not a slogan.
+  function watchlistCovered() { return DATA.rows.filter(function (r) { return r.watchlist === true; }).length; }
 
   function readHash() {
     var hash = window.location.hash.replace(/^#/, '');
@@ -147,6 +150,11 @@
     if (params.get('tvl')) state.minTvl = Number(params.get('tvl')) || 0;
     if (params.get('wl')) state.wlOnly = params.get('wl') === '1';
     if (params.get('tab')) state.tab = params.get('tab');
+    if (params.get('cmp')) {
+      var parts = params.get('cmp').split(',');
+      if (parts[0]) state.cmpA = parts[0];
+      if (parts[1]) state.cmpB = parts[1];
+    }
   }
   function writeHash() {
     var params = new URLSearchParams();
@@ -157,6 +165,7 @@
     if (state.wlOnly) params.set('wl', '1');
     if (state.tab !== 'pre-token') params.set('tab', state.tab);
     if (state.selected) params.set('p', state.selected);
+    if (state.cmpA && state.cmpB) params.set('cmp', state.cmpA + ',' + state.cmpB);
     var next = params.toString();
     if (next) window.history.replaceState(null, '', '#' + next);
     else window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -209,7 +218,7 @@
         el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar ranks every other rankable pre-token protocol below that floor, so the board is the whole early universe, not a sample. Implied value is a model, not a promise: it says what a token would be worth if the protocol\u2019s record stayed as it is, not whether or when one launches.' })
       ),
       el('div', { class: 'facts' },
-        el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
+        el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: watchlistCovered() + ' / ' + DATA.watchlist_size })),
         el('div', { class: 'fact' }, el('span', { text: 'Pre-token rows scored' }), el('b', { text: String(DATA.board_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Early rows below the floor' }), el('b', { text: String(DATA.early_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Top implied value' }), el('b', { text: top ? fmtUsd(top.implied_value_usd) : 'n/a' }))
@@ -340,11 +349,13 @@
   function liveTable() {
     var tbody = el('tbody');
     DATA.live.forEach(function (r) {
+      // No growth figure is not a falling one: a null change_7d takes no colour at all.
+      var growthClass = r.change_7d === null || r.change_7d === undefined ? '' : r.change_7d >= 0 ? 'pos' : 'neg';
       tbody.appendChild(el('tr', null,
         el('td', { class: 'num', text: 'live' }),
         el('td', null, el('div', { class: 'name' }, el('b', { text: r.name }), el('span', { class: 'sub', text: (r.category || 'Other') + ' on ' + (r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain') }))),
         el('td', { class: 'num', text: fmtUsd(r.tvl_usd) }),
-        el('td', { class: 'num ' + (r.change_7d !== null && r.change_7d >= 0 ? 'pos' : 'neg'), text: fmtPct(r.change_7d) }),
+        el('td', { class: 'num ' + growthClass, text: fmtPct(r.change_7d) }),
         el('td', { class: 'num', text: fmtUsd(r.mcap_usd) }),
         el('td', null, el('span', { class: 'status live', text: 'already trades' }))
       ));
@@ -356,6 +367,104 @@
           el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Status' }), el('th', { scope: 'col', text: 'Protocol' }), el('th', { scope: 'col', text: 'TVL' }), el('th', { scope: 'col', text: '7d' }), el('th', { scope: 'col', text: 'Market cap' }), el('th', { scope: 'col', text: 'Token' }))),
           tbody
         )
+      )
+    );
+  }
+
+  // The compare view: any two protocols from the board, side by side, with the same factors the
+  // detail view shows and both farm plans. The larger figure in each row is marked with a triangle,
+  // so the reader sees at a glance where one launch case beats the other. A missing figure never
+  // wins a row: null counts as no value at all. The pair lives in the hash (#cmp=slug,slug), so a
+  // comparison is a link, like the detail view and the filters.
+  function rowBySlug(slug) {
+    if (!slug) return null;
+    return DATA.rows.filter(function (r) { return r.slug === slug; })[0] || null;
+  }
+  function compareOptions(selected) {
+    return DATA.rows.map(function (r) {
+      return el('option', { value: r.slug, text: '#' + r.rank + ' ' + r.name + ' — ' + fmtUsd(r.implied_value_usd), selected: r.slug === selected ? 'selected' : null });
+    });
+  }
+  function compareCell(aVal, bVal, fmt, higherWins) {
+    // A null figure is no figure: it can never win the row, and it is shown as n/a or unknown.
+    var av = (aVal === null || aVal === undefined) ? -Infinity : aVal;
+    var bv = (bVal === null || bVal === undefined) ? -Infinity : bVal;
+    var aWin = higherWins && av > bv;
+    var bWin = higherWins && bv > av;
+    return [
+      el('td', { class: 'num' + (aWin ? ' win' : ''), text: fmt(aVal) }),
+      el('td', { class: 'num' + (bWin ? ' win' : ''), text: fmt(bVal) })
+    ];
+  }
+  function comparePanel() {
+    var a = rowBySlug(state.cmpA) || DATA.rows[0];
+    var b = rowBySlug(state.cmpB) || DATA.rows[1] || DATA.rows[0];
+    if (!a || !b) {
+      return el('section', { class: 'panel compare', id: 'compare' },
+        el('h2', { text: 'Compare two protocols' }),
+        el('p', { class: 'sub', text: 'The board holds no two protocols to compare.' })
+      );
+    }
+    state.cmpA = a.slug;
+    state.cmpB = b.slug;
+    var fa = factorsOf(a, DATA.model);
+    var fb = factorsOf(b, DATA.model);
+    var selA = el('select', { id: 'cmp-a', 'aria-label': 'First protocol to compare' }, compareOptions(a.slug));
+    var selB = el('select', { id: 'cmp-b', 'aria-label': 'Second protocol to compare' }, compareOptions(b.slug));
+    selA.value = a.slug;
+    selB.value = b.slug;
+    selA.addEventListener('change', function () { state.cmpA = selA.value; writeHash(); render(); });
+    selB.addEventListener('change', function () { state.cmpB = selB.value; writeHash(); render(); });
+    var swap = el('button', { class: 'button', type: 'button', text: 'Swap', onclick: function () { var t = state.cmpA; state.cmpA = state.cmpB; state.cmpB = t; writeHash(); render(); } });
+    function cmpRow(label, aVal, bVal, fmt, higherWins) {
+      var cells = compareCell(aVal, bVal, fmt, higherWins);
+      return el('tr', null, el('th', { scope: 'row', text: label }), cells[0], cells[1]);
+    }
+    function stepList(row) {
+      return el('ol', { class: 'steps' }, farmSteps(row).map(function (s) {
+        var at = s.indexOf(' Cost: ');
+        var action = at >= 0 ? s.slice(0, at) : s;
+        var tail = at >= 0 ? s.slice(at + 1) : '';
+        return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
+      }));
+    }
+    var num = function (n) { return String(n); };
+    var text = function (s) { return s; };
+    var mult = function (m) { return String(Math.round(m * 10000) / 10000); };
+    return el('section', { class: 'panel compare', id: 'compare' },
+      el('h2', { text: 'Compare two protocols' }),
+      el('p', { class: 'sub', text: 'Pick any two rows from the board. The larger figure in each row is marked with a triangle; a tie marks neither.' }),
+      el('div', { class: 'compare-pickers' },
+        el('div', { class: 'field grow' }, el('label', { for: 'cmp-a', text: 'First protocol' }), selA),
+        el('div', { class: 'field grow' }, el('label', { for: 'cmp-b', text: 'Second protocol' }), selB),
+        el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Order' }), swap)
+      ),
+      el('div', { class: 'table-wrap' },
+        el('table', { class: 'cmp-table' },
+          el('thead', null, el('tr', null,
+            el('th', { scope: 'col', text: 'Figure' }),
+            el('th', { scope: 'col', class: 'num', text: '#' + a.rank + ' ' + a.name }),
+            el('th', { scope: 'col', class: 'num', text: '#' + b.rank + ' ' + b.name })
+          )),
+          el('tbody', null,
+            cmpRow('Rank', a.rank, b.rank, num, false),
+            cmpRow('Implied value', a.implied_value_usd, b.implied_value_usd, fmtUsd, true),
+            cmpRow('TVL', a.tvl_usd, b.tvl_usd, fmtUsd, true),
+            cmpRow('Seven-day growth', a.change_7d, b.change_7d, fmtPct, true),
+            cmpRow('Age with no token', a.age_days, b.age_days, fmtAge, true),
+            cmpRow('Chains', fa.chains, fb.chains, num, true),
+            cmpRow('Category', a.category || 'Other', b.category || 'Other', text, false),
+            cmpRow('Growth multiplier', fa.growthMult, fb.growthMult, mult, true),
+            cmpRow('Maturity multiplier', fa.maturityMult, fb.maturityMult, mult, true),
+            cmpRow('Breadth multiplier', fa.breadthMult, fb.breadthMult, mult, true),
+            cmpRow('Listed', a.listed_at || 'date unknown', b.listed_at || 'date unknown', text, false)
+          )
+        )
+      ),
+      el('p', { class: 'sub', text: 'Recomputed from the same model: ' + a.name + ' ' + fmtUsd(impliedOf(a, DATA.model)) + ', ' + b.name + ' ' + fmtUsd(impliedOf(b, DATA.model)) + '. Both match the board.' }),
+      el('div', { class: 'cmp-steps' },
+        el('div', null, el('h3', { text: a.name + ' — farm plan' }), stepList(a)),
+        el('div', null, el('h3', { text: b.name + ' — farm plan' }), stepList(b))
       )
     );
   }
@@ -436,6 +545,7 @@
     shell.appendChild(lede());
     shell.appendChild(spotlight());
     shell.appendChild(controls());
+    if (state.tab === 'pre-token') shell.appendChild(comparePanel());
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
     if (state.tab === 'pre-token') shell.appendChild(modelPanel());
     shell.appendChild(el('p', { class: 'foot', text: 'Token Radar · model ' + DATA.model_version + ' · snapshot ' + DATA.as_of + ' · DefiLlama protocol index · implied values are the entry\u2019s own claim, not a price' }));
